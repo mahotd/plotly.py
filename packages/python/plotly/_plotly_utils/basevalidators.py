@@ -50,6 +50,75 @@ def to_scalar_or_list(v):
         return v
 
 
+plotlyjsShortTypes = {
+    "int8": "i1",
+    "uint8": "u1",
+    "int16": "i2",
+    "uint16": "u2",
+    "int32": "i4",
+    "uint32": "u4",
+    "float32": "f4",
+    "float64": "f8",
+}
+
+int8min = -128
+int8max = 127
+int16min = -32768
+int16max = 32767
+int32min = -2147483648
+int32max = 2147483647
+
+uint8max = 255
+uint16max = 65535
+uint32max = 4294967295
+
+
+def to_typed_array_spec(v, kind=None, force_numeric=False):
+    """
+    Convert numpy array to plotly.js typed array sepc
+    If not possible return the original value
+    """
+    v = copy_to_readonly_numpy_array(v, kind=None, force_numeric=False)
+
+    dtype = str(v.dtype)
+
+    # convert default Big Ints until we could support them in plotly.js
+    if dtype == "int64":
+        max = v.max()
+        min = v.min()
+        if max <= int8max and min >= int8min:
+            v = v.astype(get_module("numpy.int8", should_load=False))
+        elif max <= int16max and min >= int16min:
+            v = v.astype(get_module("numpy.int16", should_load=False))
+        elif max <= int32max and min >= int32min:
+            v = v.astype(get_module("numpy.int32", should_load=False))
+        else:
+            return v
+
+    elif dtype == "uint64":
+        if max <= uint8max and min >= 0:
+            v = v.astype(get_module("numpy.uint8", should_load=False))
+        elif max <= uint16max and min >= 0:
+            v = v.astype(get_module("numpy.uint16", should_load=False))
+        elif max <= uint32max and min >= 0:
+            v = v.astype(get_module("numpy.uint32", should_load=False))
+        else:
+            return v
+
+    if dtype in plotlyjsShortTypes:
+        arrObj = {
+            "dtype": plotlyjsShortTypes[dtype],
+            "bdata": base64.b64encode(v).decode("ascii"),
+        }
+
+        if v.ndim > 1:
+            arrObj["shape"] = str(v.shape)[1:-1]
+
+        return arrObj
+
+    return v
+
+
 def copy_to_readonly_numpy_array(v, kind=None, force_numeric=False):
     """
     Convert an array-like value into a read-only numpy array
@@ -415,7 +484,7 @@ class DataArrayValidator(BaseValidator):
             # Pass typed array spec through
             pass
         elif is_homogeneous_array(v):
-            v = copy_to_readonly_numpy_array(v)
+            v = to_typed_array_spec(v)
         elif is_simple_array(v):
             v = to_scalar_or_list(v)
         else:
